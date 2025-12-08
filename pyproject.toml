@@ -1,0 +1,14 @@
+[project]
+name = "speech-cn"
+version = "0.1.0"
+description = "Azure Speech China region real-time speech recognition"
+requires-python = ">=3.8"
+dependencies = [
+    "azure-cognitiveservices-speech>=1.32.0",
+    "requests>=2.31.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
