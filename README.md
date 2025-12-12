@@ -7,6 +7,8 @@
 - ✅ 支持 Azure Speech 中国区 token 申请
 - ✅ 实时语音识别（连续识别模式）
 - ✅ 单次语音识别
+- ✅ 会话转录（Conversation Transcription）
+- ✅ 说话人分离（Speaker Diarization）- 自动识别并区分不同的说话人
 - ✅ 使用 uv 管理 Python 依赖
 
 ## 环境要求
@@ -60,6 +62,8 @@ python main.py
 
 - **连续识别模式**: 持续监听麦克风，实时转换语音为文字
 - **单次识别模式**: 识别一次语音后停止
+- **会话转录模式**: 使用 ConversationTranscriber 进行会话转录
+- **说话人分离模式**: 自动识别并区分不同的说话人，为每个说话人分配唯一标识符
 
 ## 代码示例
 
@@ -89,6 +93,15 @@ client.recognize_from_microphone(
     language="zh-CN",
     on_result=on_result
 )
+
+# 说话人分离
+def on_result(speaker_id, text):
+    print(f"[{speaker_id}] {text}")
+
+client.transcribe_with_speaker_diarization(
+    language="zh-CN",
+    on_result=on_result
+)
 ```
 
 ## 注意事项
@@ -97,6 +110,8 @@ client.recognize_from_microphone(
 2. Token 有时效性，程序会自动处理 token 申请
 3. 中国区需要使用特定的 endpoint 地址
 4. 支持的语言代码：`zh-CN`（中文）、`en-US`（英文）等
+5. 说话人分离功能会自动识别不同的说话人，适合多人对话场景
+6. 说话人分离需要一定的音频时长才能准确识别，建议在多人对话时使用
 
 ## 依赖包
 

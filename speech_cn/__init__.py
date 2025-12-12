@@ -5,7 +5,7 @@ Azure Speech China Region Client
 
 import requests
 import azure.cognitiveservices.speech as speechsdk
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict, Tuple
 
 
 class AzureSpeechClient:
@@ -246,16 +246,22 @@ class AzureSpeechClient:
             # 设置权重（可选）
             if phrase_weight != 1.0:
                 phrase_list_grammar.set_weight(phrase_weight)
-            print(f"Added {len(phrases)} phrases to phrase list grammar (weight: {phrase_weight})")
+            print(
+                f"Added {len(phrases)} phrases to phrase list grammar (weight: {phrase_weight})"
+            )
 
-        def transcribing_cb(evt: speechsdk.transcription.TranscriptionEventArgs):
+        def transcribing_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionEventArgs,
+        ):
             """转录中回调（实时显示）"""
             if evt.result.reason == speechsdk.ResultReason.RecognizingSpeech:
                 text = evt.result.text
                 if text:  # 只打印非空文本
                     print(f"\r[Transcribing...] {text}", end="", flush=True)
 
-        def transcribed_cb(evt: speechsdk.transcription.TranscriptionEventArgs):
+        def transcribed_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionEventArgs,
+        ):
             """转录完成回调"""
             if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
                 text = evt.result.text
@@ -266,7 +272,9 @@ class AzureSpeechClient:
             elif evt.result.reason == speechsdk.ResultReason.NoMatch:
                 print("\nNo speech could be recognized")
 
-        def canceled_cb(evt: speechsdk.transcription.TranscriptionCanceledEventArgs):
+        def canceled_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionCanceledEventArgs,
+        ):
             """取消/错误回调"""
             error_msg = f"Error: {evt.error_details}"
             print(f"\n{error_msg}")
@@ -289,6 +297,180 @@ class AzureSpeechClient:
         conversation_transcriber.session_stopped.connect(session_stopped_cb)
 
         print("Listening... Say something!")
+
+        # 开始转录
+        conversation_transcriber.start_transcribing_async()
+
+        try:
+            # 保持运行，直到用户中断
+            input("Press Enter to stop...\n")
+        except KeyboardInterrupt:
+            pass
+        finally:
+            conversation_transcriber.stop_transcribing_async()
+            print("Stopped transcription.")
+
+    def transcribe_with_speaker_diarization(
+        self,
+        language: str = "zh-CN",
+        phrases: Optional[List[str]] = None,
+        phrase_weight: float = 1.0,
+        on_result: Optional[Callable[[str, str], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None,
+    ):
+        """
+        使用 ConversationTranscriber 进行会话转录，支持说话人分离（Speaker Diarization）
+
+        说话人分离功能可以自动识别并区分不同的说话人，为每个说话人分配唯一的标识符。
+
+        Args:
+            language: 识别语言，默认为中文
+            phrases: 要添加到短语列表的短语列表，用于提高识别准确度
+            phrase_weight: 短语列表权重，范围 0.0 到 2.0，默认 1.0
+            on_result: 识别结果回调函数，参数为 (speaker_id, text)
+                       speaker_id: 说话人标识符（如 "Guest-1", "Guest-2" 等）
+                       text: 识别的文本
+            on_error: 错误回调函数，参数为错误信息
+        """
+        # 确保有有效的 token
+        if not self.token:
+            self.get_access_token()
+
+        # 配置语音识别
+        # 中国区使用 token 认证时，需要设置 endpoint 和 authorization_token
+        endpoint = f"wss://{self.region}.stt.speech.azure.cn/speech/recognition/conversation/cognitiveservices/v1"
+
+        # 先创建 SpeechConfig（使用 endpoint）
+        speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
+        # 然后设置 authorization_token 属性
+        speech_config.authorization_token = self.token
+        speech_config.speech_recognition_language = language
+
+        # 创建音频配置（使用默认麦克风）
+        audio_config = speechsdk.audio.AudioConfig(use_default_microphone=True)
+
+        # 创建 ConversationTranscriber
+        conversation_transcriber = speechsdk.transcription.ConversationTranscriber(
+            speech_config=speech_config, audio_config=audio_config
+        )
+
+        # 设置 PhraseListGrammar（短语列表）
+        if phrases:
+            phrase_list_grammar = speechsdk.PhraseListGrammar.from_recognizer(
+                conversation_transcriber
+            )
+            for phrase in phrases:
+                phrase_list_grammar.add_phrase(phrase)
+            # 设置权重（可选）
+            if phrase_weight != 1.0:
+                phrase_list_grammar.set_weight(phrase_weight)
+            print(
+                f"Added {len(phrases)} phrases to phrase list grammar (weight: {phrase_weight})"
+            )
+
+        # 用于跟踪说话人
+        speaker_map: Dict[str, int] = {}
+        speaker_counter = 1
+
+        def get_speaker_display_name(speaker_id: str) -> str:
+            """获取说话人的显示名称"""
+            if not speaker_id:
+                return "Unknown"
+            if speaker_id not in speaker_map:
+                nonlocal speaker_counter
+                speaker_map[speaker_id] = speaker_counter
+                speaker_counter += 1
+            return f"Speaker-{speaker_map[speaker_id]}"
+
+        def transcribing_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionEventArgs,
+        ):
+            """转录中回调（实时显示）"""
+            if evt.result.reason == speechsdk.ResultReason.RecognizingSpeech:
+                text = evt.result.text
+                if text:  # 只打印非空文本
+                    # 尝试获取说话人信息
+                    speaker_id = (
+                        getattr(evt.result, "user_id", None)
+                        or getattr(evt.result, "speaker_id", None)
+                        or ""
+                    )
+                    speaker_name = (
+                        get_speaker_display_name(speaker_id)
+                        if speaker_id
+                        else "Unknown"
+                    )
+                    print(
+                        f"\r[{speaker_name} - Transcribing...] {text}",
+                        end="",
+                        flush=True,
+                    )
+
+        def transcribed_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionEventArgs,
+        ):
+            """转录完成回调"""
+            if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+                text = evt.result.text
+                if text:  # 只打印非空文本
+                    # 尝试获取说话人信息
+                    # Azure Speech SDK 中，说话人信息可能在 result 的不同属性中
+                    speaker_id = None
+                    try:
+                        # 尝试从不同属性获取说话人ID
+                        speaker_id = getattr(evt.result, "user_id", None)
+                        if not speaker_id:
+                            speaker_id = getattr(evt.result, "speaker_id", None)
+                        # 有些版本可能在 JSON 结果中
+                        if not speaker_id and hasattr(evt.result, "json"):
+                            import json
+
+                            result_json = json.loads(evt.result.json)
+                            speaker_id = result_json.get(
+                                "SpeakerId"
+                            ) or result_json.get("UserId")
+                    except Exception:
+                        pass
+
+                    speaker_name = (
+                        get_speaker_display_name(speaker_id)
+                        if speaker_id
+                        else "Unknown"
+                    )
+                    display_text = f"[{speaker_name}] {text}"
+                    print(f"\r{display_text}")  # 换行显示最终结果
+
+                    if on_result:
+                        on_result(speaker_id or "Unknown", text)
+            elif evt.result.reason == speechsdk.ResultReason.NoMatch:
+                print("\nNo speech could be recognized")
+
+        def canceled_cb(
+            evt: speechsdk.transcription.ConversationTranscriptionCanceledEventArgs,
+        ):
+            """取消/错误回调"""
+            error_msg = f"Error: {evt.error_details}"
+            print(f"\n{error_msg}")
+            if on_error:
+                on_error(error_msg)
+
+        def session_started_cb(evt: speechsdk.SessionEventArgs):
+            """会话开始回调"""
+            print("Session started. Speaker diarization enabled.")
+
+        def session_stopped_cb(evt: speechsdk.SessionEventArgs):
+            """会话停止回调"""
+            print(f"\nSession stopped. Identified {len(speaker_map)} speaker(s).")
+
+        # 连接事件处理
+        conversation_transcriber.transcribing.connect(transcribing_cb)  # 中间结果
+        conversation_transcriber.transcribed.connect(transcribed_cb)  # 最终结果
+        conversation_transcriber.canceled.connect(canceled_cb)
+        conversation_transcriber.session_started.connect(session_started_cb)
+        conversation_transcriber.session_stopped.connect(session_stopped_cb)
+
+        print("Listening with speaker diarization... Say something!")
+        print("The system will automatically identify different speakers.")
 
         # 开始转录
         conversation_transcriber.start_transcribing_async()
