@@ -14,7 +14,7 @@ class SpeechService {
 
   async getToken() {
     try {
-      const response = await axios.get("/api/token");
+      const response = await axios.get("https://studemo.net/api/speech/vue-token");
       return { token: response.data.token, region: response.data.region };
     } catch (error) {
       throw new Error(`获取token失败: ${error.response?.data?.detail || error.message}`);
@@ -128,15 +128,49 @@ function App() {
   const [transcriptions, setTranscriptions] = useState([])
   const [error, setError] = useState(null)
   const [speakers, setSpeakers] = useState(new Map())
+  const [events, setEvents] = useState([])
   const speechServiceRef = useRef(null)
   const speakersRef = useRef(new Map())
+  const eventsListRef = useRef(null)
+  const idCounterRef = useRef(0)
+
+  // 生成唯一ID
+  const generateUniqueId = () => {
+    idCounterRef.current += 1
+    return `${Date.now()}-${idCounterRef.current}`
+  }
 
   useEffect(() => {
     speakersRef.current = speakers
   }, [speakers])
 
+  // 自动滚动到事件日志底部
+  useEffect(() => {
+    if (eventsListRef.current) {
+      eventsListRef.current.scrollTop = eventsListRef.current.scrollHeight
+    }
+  }, [events])
+
   useEffect(() => {
     speechServiceRef.current = new SpeechService({
+      onSessionStarted: () => {
+        setEvents(prev => [...prev, {
+          id: generateUniqueId(),
+          type: 'session_started',
+          message: '会话已开始',
+          timestamp: new Date().toLocaleTimeString('zh-CN')
+        }])
+      },
+      onTranscribing: (text, speakerId) => {
+        setEvents(prev => [...prev, {
+          id: generateUniqueId(),
+          type: 'transcribing',
+          message: `正在识别: ${text}`,
+          text,
+          speakerId,
+          timestamp: new Date().toLocaleTimeString('zh-CN')
+        }])
+      },
       onTranscribed: (text, speakerId) => {
         setSpeakers(prev => {
           const newSpeakers = new Map(prev)
@@ -148,18 +182,43 @@ function App() {
           const speakerName = speakerNum ? `说话人-${speakerNum}` : 'Unknown'
           
           setTranscriptions(prev => [...prev, {
-            id: Date.now(),
+            id: generateUniqueId(),
             text,
             speakerId,
             speakerName,
             timestamp: new Date().toLocaleTimeString('zh-CN')
           }])
+          
+          setEvents(prev => [...prev, {
+            id: generateUniqueId(),
+            type: 'transcribed',
+            message: `识别完成: ${text}`,
+            text,
+            speakerId,
+            speakerName,
+            timestamp: new Date().toLocaleTimeString('zh-CN')
+          }])
+          
           return newSpeakers
         })
+      },
+      onSessionStopped: () => {
+        setEvents(prev => [...prev, {
+          id: generateUniqueId(),
+          type: 'session_stopped',
+          message: '会话已停止',
+          timestamp: new Date().toLocaleTimeString('zh-CN')
+        }])
       },
       onError: (errorMsg) => {
         setError(errorMsg)
         setIsListening(false)
+        setEvents(prev => [...prev, {
+          id: generateUniqueId(),
+          type: 'error',
+          message: `错误: ${errorMsg}`,
+          timestamp: new Date().toLocaleTimeString('zh-CN')
+        }])
       }
     })
 
@@ -185,6 +244,8 @@ function App() {
   const handleClear = () => {
     setTranscriptions([])
     setSpeakers(new Map())
+    setEvents([])
+    idCounterRef.current = 0
   }
 
   return (
@@ -223,26 +284,55 @@ function App() {
           </div>
         )}
 
-        <div className="transcriptions">
-          <h2>转录记录</h2>
-          {transcriptions.length === 0 ? (
-            <div className="empty-state">
-              <p>暂无转录记录</p>
-              <p className="hint">点击"开始识别"按钮开始语音识别</p>
-            </div>
-          ) : (
-            <div className="transcription-list">
-              {transcriptions.map((item) => (
-                <div key={item.id} className="transcription-item">
-                  <div className="transcription-header">
-                    <span className="speaker-badge">{item.speakerName}</span>
-                    <span className="timestamp">{item.timestamp}</span>
+        <div className="content-grid">
+          <div className="transcriptions">
+            <h2>转录记录</h2>
+            {transcriptions.length === 0 ? (
+              <div className="empty-state">
+                <p>暂无转录记录</p>
+                <p className="hint">点击"开始识别"按钮开始语音识别</p>
+              </div>
+            ) : (
+              <div className="transcription-list">
+                {transcriptions.map((item) => (
+                  <div key={item.id} className="transcription-item">
+                    <div className="transcription-header">
+                      <span className="speaker-badge">{item.speakerName}</span>
+                      <span className="timestamp">{item.timestamp}</span>
+                    </div>
+                    <div className="transcription-text">{item.text}</div>
                   </div>
-                  <div className="transcription-text">{item.text}</div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="events-log">
+            <h2>事件日志</h2>
+            {events.length === 0 ? (
+              <div className="empty-state">
+                <p>暂无事件记录</p>
+              </div>
+            ) : (
+              <div className="events-list" ref={eventsListRef}>
+                {events.map((event) => (
+                  <div key={event.id} className={`event-item event-${event.type}`}>
+                    <div className="event-header">
+                      <span className={`event-type event-type-${event.type}`}>
+                        {event.type === 'session_started' && '▶️'}
+                        {event.type === 'transcribing' && '🔄'}
+                        {event.type === 'transcribed' && '✅'}
+                        {event.type === 'session_stopped' && '⏹️'}
+                        {event.type === 'error' && '❌'}
+                      </span>
+                      <span className="event-timestamp">{event.timestamp}</span>
+                    </div>
+                    <div className="event-message">{event.message}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {speakers.size > 0 && (
