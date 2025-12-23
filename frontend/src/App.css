@@ -62,16 +62,19 @@
 
 .btn-start {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
 }
 
 .btn-stop {
   background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  color: white;
 }
 
 .btn-clear {
   background: #6c757d;
+}
+
+.btn-start,
+.btn-stop,
+.btn-clear {
   color: white;
 }
 
