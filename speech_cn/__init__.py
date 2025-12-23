@@ -50,6 +50,7 @@ class AzureSpeechClient:
     def recognize_from_microphone(
         self,
         language: str = "zh-CN",
+        languages: Optional[List[str]] = None,
         on_result: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
     ):
@@ -57,7 +58,8 @@ class AzureSpeechClient:
         从麦克风实时识别语音并转换为文字
 
         Args:
-            language: 识别语言，默认为中文
+            language: 识别语言，默认为中文（当 languages 为 None 时使用）
+            languages: 要识别的语言列表，例如 ["zh-CN", "en-US"]，如果提供则启用多语言识别
             on_result: 识别结果回调函数，参数为识别的文本
             on_error: 错误回调函数，参数为错误信息
         """
@@ -73,15 +75,32 @@ class AzureSpeechClient:
         speech_config = speechsdk.SpeechConfig(endpoint=endpoint)
         # 然后设置 authorization_token 属性
         speech_config.authorization_token = self.token
-        speech_config.speech_recognition_language = language
 
         # 创建音频配置（使用默认麦克风）
         audio_config = speechsdk.audio.AudioConfig(use_default_microphone=True)
 
-        # 创建语音识别器
-        speech_recognizer = speechsdk.SpeechRecognizer(
-            speech_config=speech_config, audio_config=audio_config
-        )
+        # 如果提供了多个语言，使用自动语言检测
+        if languages and len(languages) > 1:
+            # 创建自动语言检测配置
+            auto_detect_config = (
+                speechsdk.languageconfig.AutoDetectSourceLanguageConfig(
+                    languages=languages
+                )
+            )
+            # 创建语音识别器（使用自动语言检测）
+            speech_recognizer = speechsdk.SpeechRecognizer(
+                speech_config=speech_config,
+                audio_config=audio_config,
+                auto_detect_source_language_config=auto_detect_config,
+            )
+            print(f"Multi-language recognition enabled: {', '.join(languages)}")
+        else:
+            # 单语言模式
+            speech_config.speech_recognition_language = language
+            # 创建语音识别器
+            speech_recognizer = speechsdk.SpeechRecognizer(
+                speech_config=speech_config, audio_config=audio_config
+            )
 
         def recognizing_cb(evt: speechsdk.SpeechRecognitionEventArgs):
             """中间识别结果回调（实时显示）"""
@@ -95,7 +114,16 @@ class AzureSpeechClient:
             if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
                 text = evt.result.text
                 if text:  # 只打印非空文本
-                    print(f"\r[Recognized] {text}")  # 换行显示最终结果
+                    # 如果启用了多语言识别，显示检测到的语言
+                    if languages and len(languages) > 1:
+                        # 尝试获取检测到的语言
+                        detected_language = getattr(evt.result, "language", None)
+                        if detected_language:
+                            print(f"\r[Recognized ({detected_language})] {text}")
+                        else:
+                            print(f"\r[Recognized] {text}")
+                    else:
+                        print(f"\r[Recognized] {text}")  # 换行显示最终结果
                     if on_result:
                         on_result(text)
             elif evt.result.reason == speechsdk.ResultReason.NoMatch:

@@ -51,8 +51,9 @@ def main():
             print(f"\n!!! {error}")
 
         print("\nStarting continuous recognition...")
+        # 支持同时识别中文和英文
         client.recognize_from_microphone(
-            language="zh-CN", on_result=on_result, on_error=on_error
+            languages=["zh-CN", "en-US"], on_result=on_result, on_error=on_error
         )
     elif choice == "2":
         # 单次识别模式
