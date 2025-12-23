@@ -35,6 +35,7 @@ class SpeechService {
     try {
       // 获取token和region
       const { token, region } = await this.getToken();
+
       console.log("获取到 token 和 region:", {
         region,
         tokenLength: token?.length,
@@ -58,6 +59,7 @@ class SpeechService {
           SpeechSDK.PropertyId.SpeechServiceConnection_Endpoint,
           endpoint
         );
+        
         // 同时设置授权 token（确保 token 正确传递）
         this.speechConfig.authorizationToken = token;
       } catch (configError) {
