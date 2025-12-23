@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from speech_cn import AzureSpeechClient
+from AzureSpeechClient import AzureSpeechClient
 
 load_dotenv()
 
