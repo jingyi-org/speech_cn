@@ -3,15 +3,26 @@
 演示如何使用 Azure Speech 中国区服务进行实时语音识别
 """
 
+import os
+from dotenv import load_dotenv
 from speech_cn import AzureSpeechClient
+
+# 加载环境变量
+load_dotenv()
 
 
 def main():
-    """主函数"""
-    # Azure Speech 中国区配置
-    SUBSCRIPTION_KEY = "2lPfr5c3P43KtWt9JwdViPkiZ1XeMJdbrxbGs44nkm0zoGQsfLM1JQQJ99BKAEHpCsCfT1gyAAAYACOGJha2"
-    TOKEN_ENDPOINT = "https://chinanorth3.api.cognitive.azure.cn/sts/v1.0/issuetoken"
-    REGION = "chinanorth3"
+
+    # Azure Speech 中国区配置（从环境变量读取）
+    SUBSCRIPTION_KEY = os.getenv("AZURE_SPEECH_SUBSCRIPTION_KEY")
+    TOKEN_ENDPOINT = os.getenv("AZURE_SPEECH_TOKEN_ENDPOINT")
+    REGION = os.getenv("AZURE_SPEECH_REGION")
+
+    # 验证必要的环境变量
+    if not all([SUBSCRIPTION_KEY, TOKEN_ENDPOINT, REGION]):
+        raise ValueError(
+            "Missing required environment variables. Please check your .env file."
+        )
 
     # 创建客户端
     client = AzureSpeechClient(
