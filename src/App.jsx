@@ -132,6 +132,7 @@ function App() {
   const speechServiceRef = useRef(null)
   const speakersRef = useRef(new Map())
   const eventsListRef = useRef(null)
+  const transcriptionsListRef = useRef(null)
   const idCounterRef = useRef(0)
 
   // 生成唯一ID
@@ -150,6 +151,13 @@ function App() {
       eventsListRef.current.scrollTop = eventsListRef.current.scrollHeight
     }
   }, [events])
+
+  // 自动滚动到转录记录底部
+  useEffect(() => {
+    if (transcriptionsListRef.current) {
+      transcriptionsListRef.current.scrollTop = transcriptionsListRef.current.scrollHeight
+    }
+  }, [transcriptions])
 
   useEffect(() => {
     speechServiceRef.current = new SpeechService({
@@ -285,28 +293,6 @@ function App() {
         )}
 
         <div className="content-grid">
-          <div className="transcriptions">
-            <h2>转录记录</h2>
-            {transcriptions.length === 0 ? (
-              <div className="empty-state">
-                <p>暂无转录记录</p>
-                <p className="hint">点击"开始识别"按钮开始语音识别</p>
-              </div>
-            ) : (
-              <div className="transcription-list">
-                {transcriptions.map((item) => (
-                  <div key={item.id} className="transcription-item">
-                    <div className="transcription-header">
-                      <span className="speaker-badge">{item.speakerName}</span>
-                      <span className="timestamp">{item.timestamp}</span>
-                    </div>
-                    <div className="transcription-text">{item.text}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           <div className="events-log">
             <h2>事件日志</h2>
             {events.length === 0 ? (
@@ -328,6 +314,28 @@ function App() {
                       <span className="event-timestamp">{event.timestamp}</span>
                     </div>
                     <div className="event-message">{event.message}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="transcriptions">
+            <h2>转录记录（识别完成后显示）</h2>
+            {transcriptions.length === 0 ? (
+              <div className="empty-state">
+                <p>暂无转录记录</p>
+                <p className="hint">点击"开始识别"按钮开始语音识别</p>
+              </div>
+            ) : (
+              <div className="transcription-list" ref={transcriptionsListRef}>
+                {transcriptions.map((item) => (
+                  <div key={item.id} className="transcription-item">
+                    <div className="transcription-header">
+                      <span className="speaker-badge">{item.speakerName}</span>
+                      <span className="timestamp">{item.timestamp}</span>
+                    </div>
+                    <div className="transcription-text">{item.text}</div>
                   </div>
                 ))}
               </div>
