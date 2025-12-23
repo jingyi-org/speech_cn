@@ -24,30 +24,42 @@ function App() {
       },
       onTranscribed: (text, speakerId) => {
         // 转录完成
+        console.log("onTranscribed回调被调用:", { text, speakerId });
+        
+        // 更新speakers状态
         setSpeakers(prev => {
           const newSpeakers = new Map(prev)
           if (speakerId && !newSpeakers.has(speakerId)) {
             newSpeakers.set(speakerId, newSpeakers.size + 1)
           }
+          // 立即更新ref，以便后续使用
           speakersRef.current = newSpeakers
           return newSpeakers
         })
 
+        // 使用ref获取最新的speakers值（因为setSpeakers是异步的）
         const currentSpeakers = speakersRef.current
         const speakerName = speakerId && currentSpeakers.has(speakerId)
           ? `说话人-${currentSpeakers.get(speakerId)}`
           : 'Unknown'
 
-        setTranscriptions(prev => [
-          ...prev,
-          {
-            id: Date.now(),
-            text,
-            speakerId,
-            speakerName,
-            timestamp: new Date().toLocaleTimeString('zh-CN')
-          }
-        ])
+        console.log("准备更新transcriptions状态:", { text, speakerName, speakersSize: currentSpeakers.size });
+        
+        // 更新transcriptions状态
+        setTranscriptions(prev => {
+          const newTranscriptions = [
+            ...prev,
+            {
+              id: Date.now(),
+              text,
+              speakerId,
+              speakerName,
+              timestamp: new Date().toLocaleTimeString('zh-CN')
+            }
+          ];
+          console.log("transcriptions状态已更新，新长度:", newTranscriptions.length, "内容:", newTranscriptions);
+          return newTranscriptions;
+        })
       },
       onError: (errorMsg) => {
         setError(errorMsg)

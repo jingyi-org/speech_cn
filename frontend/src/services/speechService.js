@@ -126,6 +126,7 @@ class SpeechService {
         const text = e.result.text;
         if (text) {
           const speakerId = this.extractSpeakerId(e.result);
+          console.log("transcribing事件:", { text, speakerId });
           if (this.callbacks.onTranscribing) {
             this.callbacks.onTranscribing(text, speakerId);
           }
@@ -135,16 +136,33 @@ class SpeechService {
 
     // 转录完成
     this.conversationTranscriber.transcribed = (s, e) => {
+      console.log("transcribed事件触发:", {
+        reason: e.result.reason,
+        reasonName: SpeechSDK.ResultReason[e.result.reason],
+        text: e.result.text,
+        hasText: !!e.result.text,
+      });
+
       if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
         const text = e.result.text;
         if (text) {
           const speakerId = this.extractSpeakerId(e.result);
+          console.log("准备调用onTranscribed回调:", { text, speakerId });
           if (this.callbacks.onTranscribed) {
             this.callbacks.onTranscribed(text, speakerId);
+          } else {
+            console.warn("onTranscribed回调未定义");
           }
+        } else {
+          console.warn("识别结果文本为空");
         }
       } else if (e.result.reason === SpeechSDK.ResultReason.NoMatch) {
         console.log("无法识别语音");
+      } else {
+        console.log("transcribed事件触发，但reason不是RecognizedSpeech:", {
+          reason: e.result.reason,
+          reasonName: SpeechSDK.ResultReason[e.result.reason],
+        });
       }
     };
 
