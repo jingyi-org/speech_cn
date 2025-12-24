@@ -55,11 +55,11 @@ class SpeechService {
 
 
 
-      const audioFormat = speechsdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1)
-      const pushStream = speechsdk.AudioInputStream.createPushStream(audioFormat);
-      this.audioConfig = speechsdk.AudioConfig.fromStreamInput(pushStream);
+      // const audioFormat = speechsdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1)
+      // const pushStream = speechsdk.AudioInputStream.createPushStream(audioFormat);
+      // this.audioConfig = speechsdk.AudioConfig.fromStreamInput(pushStream);
 
-      // this.audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
+      this.audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
 
 
       this.conversationTranscriber = new speechsdk.ConversationTranscriber(
