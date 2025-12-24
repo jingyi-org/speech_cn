@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk"
+import * as speechsdk from "microsoft-cognitiveservices-speech-sdk"
 import axios from "axios"
 import './App.css'
 
@@ -28,25 +28,50 @@ class SpeechService {
       const { token, region } = await this.getToken();
       const endpoint = `wss://${region}.stt.speech.azure.cn/speech/recognition/conversation/cognitiveservices/v1`;
 
-      this.speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
-
+      this.speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(token, region);
 
       this.speechConfig.setProperty(
-        SpeechSDK.PropertyId.SpeechServiceConnection_Endpoint,
+        speechsdk.PropertyId.SpeechServiceConnection_Endpoint,
         endpoint
       );
       this.speechConfig.authorizationToken = token;
       this.speechConfig.speechRecognitionLanguage = "zh-CN";
       this.speechConfig.setProperty(
-        SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs,
+        speechsdk.PropertyId.Speech_SegmentationSilenceTimeoutMs,
         "2000"
       );
 
-      this.audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
-      this.conversationTranscriber = new SpeechSDK.ConversationTranscriber(
+
+      this.speechConfig.setProperty(
+        speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
+        "false"
+      );
+
+
+      this.speechConfig.setProperty(
+        speechsdk.PropertyId.Conversation_Initial_Silence_Timeout,
+        "0"
+      );
+
+
+
+      const audioFormat = speechsdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1)
+      const pushStream = speechsdk.AudioInputStream.createPushStream(audioFormat);
+      this.audioConfig = speechsdk.AudioConfig.fromStreamInput(pushStream);
+
+      // this.audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
+
+
+      this.conversationTranscriber = new speechsdk.ConversationTranscriber(
         this.speechConfig,
         this.audioConfig
       );
+
+      const phraseListGrammar = speechsdk.PhraseListGrammar.fromRecognizer(this.conversationTranscriber)
+      phraseListGrammar.addPhrases([
+        '美的',
+        '格力',
+      ])
 
       this.setupEventHandlers();
       this.conversationTranscriber.startTranscribingAsync(
@@ -67,13 +92,13 @@ class SpeechService {
 
   setupEventHandlers() {
     this.conversationTranscriber.transcribing = (s, e) => {
-      if (e.result.reason === SpeechSDK.ResultReason.RecognizingSpeech && e.result.text) {
+      if (e.result.reason === speechsdk.ResultReason.RecognizingSpeech && e.result.text) {
         this.callbacks.onTranscribing?.(e.result.text, this.extractSpeakerId(e.result));
       }
     };
 
     this.conversationTranscriber.transcribed = (s, e) => {
-      if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
+      if (e.result.reason === speechsdk.ResultReason.RecognizedSpeech && e.result.text) {
         this.callbacks.onTranscribed?.(e.result.text, this.extractSpeakerId(e.result));
       }
     };
