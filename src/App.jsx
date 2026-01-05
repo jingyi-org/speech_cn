@@ -414,7 +414,6 @@ function App() {
       <div className="container">
         <header className="header">
           <h1>🎤 Azure Speech - 说话人分离</h1>
-          <p className="subtitle">实时语音识别与说话人识别</p>
         </header>
 
         <div className="controls">
