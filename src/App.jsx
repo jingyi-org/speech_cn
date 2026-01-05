@@ -27,7 +27,7 @@ class SpeechService {
       const response = await axios.get(
         "https://studemo.net/api/speech/vue-token"
       );
-      console.timeEnd("getAuthorizationToken");
+      console.timeEnd("getAuthorizationToken", response);
       return { token: response.data.token, region: response.data.region };
     } catch (error) {
       throw new Error(
@@ -146,6 +146,7 @@ class SpeechService {
     };
 
     this.conversationTranscriber.transcribed = (s, e) => {
+      console.log({ s, e });
       if (
         e.result.reason === speechsdk.ResultReason.RecognizedSpeech &&
         e.result.text
@@ -165,6 +166,7 @@ class SpeechService {
           "\n提示: WebSocket 连接失败，请检查网络连接、Token有效性和防火墙设置";
       }
       this.callbacks.onError?.(errorMsg);
+      console.log({ s, e });
     };
 
     this.conversationTranscriber.sessionStopped = () => {
