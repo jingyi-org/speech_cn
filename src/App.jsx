@@ -4,6 +4,9 @@ import axios from "axios";
 import "./App.css";
 
 const TOKEN_REFRESH_INTERVAL = 1 * 10 * 1000;
+// Azure Speech Service 会话超时时间（20分钟 = 1200000毫秒）
+// 在19分钟时主动重启会话，避免超时
+const SESSION_TIMEOUT_MS = 19 * 60 * 1000; // 19分钟
 
 class SpeechService {
   constructor(callbacks) {
@@ -19,6 +22,9 @@ class SpeechService {
 
     this.isRunning = false;
     this.tokenRefreshInterval = null;
+    this.sessionRestartTimer = null;
+    this.sessionStartTime = null;
+    this.autoReconnectEnabled = false; // 是否启用自动重连
   }
 
   async getAuthorizationToken() {
@@ -61,6 +67,79 @@ class SpeechService {
     if (this.tokenRefreshInterval) {
       clearInterval(this.tokenRefreshInterval);
       this.tokenRefreshInterval = null;
+    }
+  }
+
+  startSessionRestartTimer() {
+    this.stopSessionRestartTimer();
+
+    // 在19分钟时主动重启会话
+    this.sessionRestartTimer = setTimeout(() => {
+      if (this.isRunning && this.autoReconnectEnabled) {
+        console.log("会话即将超时，主动重启会话...");
+        this.restartSession("会话即将超时（19分钟），主动重启");
+      }
+    }, SESSION_TIMEOUT_MS);
+  }
+
+  stopSessionRestartTimer() {
+    if (this.sessionRestartTimer) {
+      clearTimeout(this.sessionRestartTimer);
+      this.sessionRestartTimer = null;
+    }
+  }
+
+  async restartSession(reason = "主动重启") {
+    if (!this.isRunning || !this.autoReconnectEnabled) {
+      return;
+    }
+
+    try {
+      // 通知界面：开始重启
+      this.callbacks.onSessionRestarting?.(reason);
+
+      // 先停止当前会话
+      const wasRunning = this.isRunning;
+      this.isRunning = false; // 防止事件处理器触发重连
+
+      // 停止定时器
+      this.stopTokenRefresh();
+      this.stopSessionRestartTimer();
+
+      if (this.conversationTranscriber) {
+        await new Promise((resolve) => {
+          if (this.conversationTranscriber) {
+            this.conversationTranscriber.stopTranscribingAsync(() => {
+              resolve();
+            });
+          } else {
+            resolve();
+          }
+        });
+      }
+
+      // 清理资源
+      [
+        this.conversationTranscriber,
+        this.audioConfig,
+        this.speechConfig,
+      ].forEach((resource) => resource?.close());
+
+      // 重置资源引用
+      this.conversationTranscriber = null;
+      this.audioConfig = null;
+      // 保留 speechConfig，因为可以重用（只需要更新 token）
+
+      // 重新启动会话
+      if (wasRunning) {
+        await this.start();
+        // 通知界面：重启成功
+        this.callbacks.onSessionRestarted?.();
+      }
+    } catch (error) {
+      console.error("重启会话失败:", error);
+      this.callbacks.onSessionRestartFailed?.(error.message);
+      this.callbacks.onError?.(`重启会话失败: ${error.message}`);
     }
   }
 
@@ -118,9 +197,14 @@ class SpeechService {
       this.conversationTranscriber.startTranscribingAsync(
         () => {
           this.isRunning = true;
+          this.sessionStartTime = Date.now();
           this.callbacks.onSessionStarted?.();
-          // 启动定时器，每隔一分钟刷新 token
+          // 启动定时器，每隔10秒刷新 token
           this.startTokenRefresh();
+          // 启动会话重启定时器（在19分钟时主动重启）
+          if (this.autoReconnectEnabled) {
+            this.startSessionRestartTimer();
+          }
         },
         (error) => {
           this.isRunning = false;
@@ -161,18 +245,58 @@ class SpeechService {
 
     this.conversationTranscriber.canceled = (s, e) => {
       console.log({ method: "canceled", s, e });
+      const wasRunning = this.isRunning;
       this.isRunning = false;
+
       let errorMsg = `识别错误: ${e.errorDetails}`;
+      const isTimeoutError =
+        e.errorDetails?.includes("StatusCode: 0") ||
+        e.errorDetails?.includes("Unable to contact server") ||
+        e.errorDetails?.includes("StatusCode:0");
+
       if (e.errorDetails?.includes("StatusCode: 1006")) {
         errorMsg +=
           "\n提示: WebSocket 连接失败，请检查网络连接、Token有效性和防火墙设置";
+      } else if (isTimeoutError) {
+        errorMsg += "\n提示: 会话超时（通常发生在20分钟后）";
+        // 如果是超时错误且启用了自动重连，则自动重连
+        if (this.autoReconnectEnabled && wasRunning) {
+          console.log("检测到超时错误，尝试自动重连...");
+          setTimeout(() => {
+            this.restartSession("检测到超时错误，自动重连");
+          }, 1000); // 延迟1秒后重连
+          return; // 不触发错误回调，因为会自动重连
+        }
       }
+
       this.callbacks.onError?.(errorMsg);
     };
 
     this.conversationTranscriber.sessionStopped = (s, e) => {
       console.log({ method: "sessionStopped", s, e });
+      const wasRunning = this.isRunning;
       this.isRunning = false;
+
+      // 如果是因为超时导致的停止，且启用了自动重连，则自动重连
+      // 注意：sessionStopped 会在 canceled 之后触发
+      // 如果 canceled 事件已经处理了重连，这里就不需要再处理了
+      // 但如果 canceled 没有触发（某些情况下），这里作为备用处理
+      if (this.autoReconnectEnabled && wasRunning) {
+        // 检查是否接近或超过18分钟（可能是超时导致的）
+        const sessionDuration = this.sessionStartTime
+          ? Date.now() - this.sessionStartTime
+          : 0;
+
+        if (sessionDuration >= 18 * 60 * 1000) {
+          // 可能是超时导致的停止，尝试重连
+          console.log("会话停止，可能是超时导致，尝试自动重连...");
+          setTimeout(() => {
+            this.restartSession("会话停止（可能是超时），自动重连");
+          }, 1000);
+          return; // 不触发停止回调，因为会自动重连
+        }
+      }
+
       this.callbacks.onSessionStopped?.();
     };
   }
@@ -201,6 +325,10 @@ class SpeechService {
   stop() {
     // 停止 token 刷新定时器
     this.stopTokenRefresh();
+    // 停止会话重启定时器
+    this.stopSessionRestartTimer();
+    // 禁用自动重连
+    this.autoReconnectEnabled = false;
 
     if (this.conversationTranscriber && this.isRunning) {
       this.conversationTranscriber.stopTranscribingAsync(() => {
@@ -211,6 +339,21 @@ class SpeechService {
       (resource) => resource?.close()
     );
     this.conversationTranscriber = this.audioConfig = this.speechConfig = null;
+    this.sessionStartTime = null;
+  }
+
+  // 启用自动重连功能
+  enableAutoReconnect() {
+    this.autoReconnectEnabled = true;
+    if (this.isRunning) {
+      this.startSessionRestartTimer();
+    }
+  }
+
+  // 禁用自动重连功能
+  disableAutoReconnect() {
+    this.autoReconnectEnabled = false;
+    this.stopSessionRestartTimer();
   }
 }
 
@@ -367,6 +510,40 @@ function App() {
           },
         ]);
       },
+      onSessionRestarting: (reason) => {
+        setIsSessionStarted(false); // 临时标记会话未启动
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "info",
+            message: `🔄 ${reason || "正在重启会话"}...`,
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
+      },
+      onSessionRestarted: () => {
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "info",
+            message: "✅ 会话重启成功，继续识别中...",
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
+      },
+      onSessionRestartFailed: (errorMsg) => {
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "error",
+            message: `❌ 会话重启失败: ${errorMsg}`,
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
+      },
       onError: (errorMsg) => {
         setError(errorMsg);
         setIsListening(false);
@@ -390,6 +567,8 @@ function App() {
     try {
       setError(null);
       setIsListening(true);
+      // 启用自动重连功能
+      speechServiceRef.current.enableAutoReconnect();
       await speechServiceRef.current.start();
     } catch (err) {
       setError(err.message || "启动失败");
@@ -469,6 +648,7 @@ function App() {
                         {event.type === "transcribed" && "✅"}
                         {event.type === "session_stopped" && "⏹️"}
                         {event.type === "error" && "❌"}
+                        {event.type === "info" && "ℹ️"}
                       </span>
                       <span className="event-timestamp">{event.timestamp}</span>
                     </div>
