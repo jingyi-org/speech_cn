@@ -3,7 +3,7 @@ import * as speechsdk from "microsoft-cognitiveservices-speech-sdk";
 import axios from "axios";
 import "./App.css";
 
-const TOKEN_REFRESH_INTERVAL = 60 * 1000;
+const TOKEN_REFRESH_INTERVAL = 8 * 60 * 1000;
 
 class SpeechService {
   constructor(callbacks) {
