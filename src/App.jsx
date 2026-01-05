@@ -3,7 +3,7 @@ import * as speechsdk from "microsoft-cognitiveservices-speech-sdk";
 import axios from "axios";
 import "./App.css";
 
-const TOKEN_REFRESH_INTERVAL = 1 * 10 * 1000;
+const TOKEN_REFRESH_INTERVAL = 8 * 60 * 1000;
 // Azure Speech Service 会话超时时间（20分钟 = 1200000毫秒）
 // 在19分钟时主动重启会话，避免超时
 const SESSION_TIMEOUT_MS = 19 * 60 * 1000; // 19分钟
