@@ -147,7 +147,7 @@ class SpeechService {
     };
 
     this.conversationTranscriber.transcribed = (s, e) => {
-      console.log({ e: "transcribed", s, e });
+      console.log({ method: "transcribed", s, e });
       if (
         e.result.reason === speechsdk.ResultReason.RecognizedSpeech &&
         e.result.text
@@ -160,7 +160,7 @@ class SpeechService {
     };
 
     this.conversationTranscriber.canceled = (s, e) => {
-      console.log({ e: "canceled", s, e });
+      console.log({ method: "canceled", s, e });
       this.isRunning = false;
       let errorMsg = `识别错误: ${e.errorDetails}`;
       if (e.errorDetails?.includes("StatusCode: 1006")) {
