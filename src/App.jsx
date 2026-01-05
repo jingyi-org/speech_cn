@@ -170,7 +170,8 @@ class SpeechService {
       this.callbacks.onError?.(errorMsg);
     };
 
-    this.conversationTranscriber.sessionStopped = () => {
+    this.conversationTranscriber.sessionStopped = (s, e) => {
+      console.log({ method: "sessionStopped", s, e });
       this.isRunning = false;
       this.callbacks.onSessionStopped?.();
     };
