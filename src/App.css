@@ -190,7 +190,6 @@
 
 .transcription-item:hover {
   background: #e9ecef;
-  transform: translateX(5px);
 }
 
 .transcription-header {
@@ -299,7 +298,6 @@
 
 .event-item:hover {
   background: #e9ecef;
-  transform: translateX(3px);
 }
 
 .event-item.event-session_started {
