@@ -3,7 +3,7 @@ import * as speechsdk from "microsoft-cognitiveservices-speech-sdk";
 import axios from "axios";
 import "./App.css";
 
-const TOKEN_REFRESH_INTERVAL = 8 * 60 * 1000;
+const TOKEN_REFRESH_INTERVAL = 1 * 10 * 1000;
 
 class SpeechService {
   constructor(callbacks) {
@@ -41,6 +41,7 @@ class SpeechService {
       try {
         const { token } = await this.getAuthorizationToken();
         this.speechConfig.authorizationToken = token;
+
         this.callbacks.onTokenRefreshed?.();
       } catch (error) {
         this.callbacks.onError?.(`刷新 token 失败: ${error.message}`);
