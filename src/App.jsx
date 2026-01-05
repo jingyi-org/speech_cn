@@ -147,7 +147,7 @@ class SpeechService {
     };
 
     this.conversationTranscriber.transcribed = (s, e) => {
-      console.log({ s, e });
+      console.log({ e: "transcribed", s, e });
       if (
         e.result.reason === speechsdk.ResultReason.RecognizedSpeech &&
         e.result.text
@@ -160,6 +160,7 @@ class SpeechService {
     };
 
     this.conversationTranscriber.canceled = (s, e) => {
+      console.log({ e: "canceled", s, e });
       this.isRunning = false;
       let errorMsg = `识别错误: ${e.errorDetails}`;
       if (e.errorDetails?.includes("StatusCode: 1006")) {
@@ -167,7 +168,6 @@ class SpeechService {
           "\n提示: WebSocket 连接失败，请检查网络连接、Token有效性和防火墙设置";
       }
       this.callbacks.onError?.(errorMsg);
-      console.log({ s, e });
     };
 
     this.conversationTranscriber.sessionStopped = () => {
