@@ -21,6 +21,12 @@ class SpeechService {
     }
   }
 
+  async refreshToken() {
+    if(this.conversationTranscriber){
+      this.conversationTranscriber.refreshToken();
+    }
+  }
+
   async start() {
     if (this.isRunning) return;
 
@@ -52,8 +58,6 @@ class SpeechService {
         speechsdk.PropertyId.Conversation_Initial_Silence_Timeout,
         "0"
       );
-
-
 
       // const audioFormat = speechsdk.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1)
       // const pushStream = speechsdk.AudioInputStream.createPushStream(audioFormat);
