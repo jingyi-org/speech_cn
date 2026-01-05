@@ -219,11 +219,14 @@ function App() {
   const [error, setError] = useState(null);
   const [speakers, setSpeakers] = useState(new Map());
   const [events, setEvents] = useState([]);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [isSessionStarted, setIsSessionStarted] = useState(false);
   const speechServiceRef = useRef(null);
   const speakersRef = useRef(new Map());
   const eventsListRef = useRef(null);
   const transcriptionsListRef = useRef(null);
   const idCounterRef = useRef(0);
+  const timerIntervalRef = useRef(null);
 
   // 生成唯一ID
   const generateUniqueId = () => {
@@ -231,9 +234,45 @@ function App() {
     return `${Date.now()}-${idCounterRef.current}`;
   };
 
+  // 格式化时间为 小时：分钟：秒
+  const formatTime = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+      2,
+      "0"
+    )}:${String(secs).padStart(2, "0")}`;
+  };
+
   useEffect(() => {
     speakersRef.current = speakers;
   }, [speakers]);
+
+  // 计时器管理 - 在会话真正开始时启动
+  useEffect(() => {
+    if (isSessionStarted) {
+      // 启动计时器
+      timerIntervalRef.current = setInterval(() => {
+        setElapsedTime((prev) => prev + 1);
+      }, 1000);
+    } else {
+      // 停止计时器
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      // 重置计时器
+      setElapsedTime(0);
+    }
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [isSessionStarted]);
 
   // 自动滚动到事件日志底部
   useEffect(() => {
@@ -253,6 +292,8 @@ function App() {
   useEffect(() => {
     speechServiceRef.current = new SpeechService({
       onSessionStarted: () => {
+        setIsSessionStarted(true);
+        setElapsedTime(0); // 重置计时器
         setEvents((prev) => [
           ...prev,
           {
@@ -314,6 +355,7 @@ function App() {
         });
       },
       onSessionStopped: () => {
+        setIsSessionStarted(false);
         setEvents((prev) => [
           ...prev,
           {
@@ -327,6 +369,7 @@ function App() {
       onError: (errorMsg) => {
         setError(errorMsg);
         setIsListening(false);
+        setIsSessionStarted(false);
         setEvents((prev) => [
           ...prev,
           {
@@ -356,6 +399,7 @@ function App() {
   const handleStop = () => {
     speechServiceRef.current.stop();
     setIsListening(false);
+    setIsSessionStarted(false);
   };
 
   const handleClear = () => {
@@ -398,6 +442,9 @@ function App() {
           <div className="listening-indicator">
             <div className="pulse"></div>
             <span>正在监听中...</span>
+            {isSessionStarted && (
+              <span className="timer">{formatTime(elapsedTime)}</span>
+            )}
           </div>
         )}
 
