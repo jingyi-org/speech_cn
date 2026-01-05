@@ -1,29 +1,63 @@
-import { useState, useEffect, useRef } from 'react'
-import * as speechsdk from "microsoft-cognitiveservices-speech-sdk"
-import axios from "axios"
-import './App.css'
+import { useState, useEffect, useRef } from "react";
+import * as speechsdk from "microsoft-cognitiveservices-speech-sdk";
+import axios from "axios";
+import "./App.css";
+
+const TOKEN_REFRESH_INTERVAL = 60 * 1000;
 
 class SpeechService {
   constructor(callbacks) {
     this.callbacks = callbacks || {};
+
+    /** @type {speechsdk.ConversationTranscriber | null} */
     this.conversationTranscriber = null;
+
     this.audioConfig = null;
+
+    /** @type {speechsdk.SpeechConfig | null} */
     this.speechConfig = null;
+
     this.isRunning = false;
+    this.tokenRefreshInterval = null;
   }
 
-  async getToken() {
+  async getAuthorizationToken() {
     try {
-      const response = await axios.get("https://studemo.net/api/speech/vue-token");
+      const response = await axios.get(
+        "https://studemo.net/api/speech/vue-token"
+      );
       return { token: response.data.token, region: response.data.region };
     } catch (error) {
-      throw new Error(`获取token失败: ${error.response?.data?.detail || error.message}`);
+      throw new Error(
+        `获取token失败: ${error.response?.data?.detail || error.message}`
+      );
     }
   }
 
   async refreshToken() {
-    if(this.conversationTranscriber){
-      this.conversationTranscriber.refreshToken();
+    if (this.conversationTranscriber && this.speechConfig) {
+      try {
+        const { token } = await this.getAuthorizationToken();
+        this.speechConfig.authorizationToken = token;
+        this.callbacks.onTokenRefreshed?.();
+      } catch (error) {
+        this.callbacks.onError?.(`刷新 token 失败: ${error.message}`);
+      }
+    }
+  }
+
+  startTokenRefresh() {
+    this.stopTokenRefresh();
+
+    this.tokenRefreshInterval = setInterval(() => {
+      this.refreshToken();
+    }, TOKEN_REFRESH_INTERVAL);
+  }
+
+  stopTokenRefresh() {
+    if (this.tokenRefreshInterval) {
+      clearInterval(this.tokenRefreshInterval);
+      this.tokenRefreshInterval = null;
     }
   }
 
@@ -31,10 +65,14 @@ class SpeechService {
     if (this.isRunning) return;
 
     try {
-      const { token, region } = await this.getToken();
+      const { token, region } = await this.getAuthorizationToken();
+
       const endpoint = `wss://${region}.stt.speech.azure.cn/speech/recognition/conversation/cognitiveservices/v1`;
 
-      this.speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(token, region);
+      this.speechConfig = speechsdk.SpeechConfig.fromAuthorizationToken(
+        token,
+        region
+      );
 
       this.speechConfig.setProperty(
         speechsdk.PropertyId.SpeechServiceConnection_Endpoint,
@@ -47,12 +85,10 @@ class SpeechService {
         "2000"
       );
 
-
       this.speechConfig.setProperty(
         speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
         "false"
       );
-
 
       this.speechConfig.setProperty(
         speechsdk.PropertyId.Conversation_Initial_Silence_Timeout,
@@ -65,23 +101,23 @@ class SpeechService {
 
       this.audioConfig = speechsdk.AudioConfig.fromDefaultMicrophoneInput();
 
-
       this.conversationTranscriber = new speechsdk.ConversationTranscriber(
         this.speechConfig,
         this.audioConfig
       );
 
-      const phraseListGrammar = speechsdk.PhraseListGrammar.fromRecognizer(this.conversationTranscriber)
-      phraseListGrammar.addPhrases([
-        '美的',
-        '格力',
-      ])
+      const phraseListGrammar = speechsdk.PhraseListGrammar.fromRecognizer(
+        this.conversationTranscriber
+      );
+      phraseListGrammar.addPhrases(["美的", "格力"]);
 
       this.setupEventHandlers();
       this.conversationTranscriber.startTranscribingAsync(
         () => {
           this.isRunning = true;
           this.callbacks.onSessionStarted?.();
+          // 启动定时器，每隔一分钟刷新 token
+          this.startTokenRefresh();
         },
         (error) => {
           this.isRunning = false;
@@ -96,14 +132,26 @@ class SpeechService {
 
   setupEventHandlers() {
     this.conversationTranscriber.transcribing = (s, e) => {
-      if (e.result.reason === speechsdk.ResultReason.RecognizingSpeech && e.result.text) {
-        this.callbacks.onTranscribing?.(e.result.text, this.extractSpeakerId(e.result));
+      if (
+        e.result.reason === speechsdk.ResultReason.RecognizingSpeech &&
+        e.result.text
+      ) {
+        this.callbacks.onTranscribing?.(
+          e.result.text,
+          this.extractSpeakerId(e.result)
+        );
       }
     };
 
     this.conversationTranscriber.transcribed = (s, e) => {
-      if (e.result.reason === speechsdk.ResultReason.RecognizedSpeech && e.result.text) {
-        this.callbacks.onTranscribed?.(e.result.text, this.extractSpeakerId(e.result));
+      if (
+        e.result.reason === speechsdk.ResultReason.RecognizedSpeech &&
+        e.result.text
+      ) {
+        this.callbacks.onTranscribed?.(
+          e.result.text,
+          this.extractSpeakerId(e.result)
+        );
       }
     };
 
@@ -111,7 +159,8 @@ class SpeechService {
       this.isRunning = false;
       let errorMsg = `识别错误: ${e.errorDetails}`;
       if (e.errorDetails?.includes("StatusCode: 1006")) {
-        errorMsg += "\n提示: WebSocket 连接失败，请检查网络连接、Token有效性和防火墙设置";
+        errorMsg +=
+          "\n提示: WebSocket 连接失败，请检查网络连接、Token有效性和防火墙设置";
       }
       this.callbacks.onError?.(errorMsg);
     };
@@ -129,17 +178,24 @@ class SpeechService {
     try {
       if (result.json) {
         const json = JSON.parse(result.json);
-        return json.SpeakerId || json.UserId || json.speakerId || json.userId || null;
+        return (
+          json.SpeakerId || json.UserId || json.speakerId || json.userId || null
+        );
       }
       if (result.privResult) {
         const priv = result.privResult;
-        return priv.SpeakerId || priv.speakerId || priv.UserId || priv.userId || null;
+        return (
+          priv.SpeakerId || priv.speakerId || priv.UserId || priv.userId || null
+        );
       }
     } catch {}
     return null;
   }
 
   stop() {
+    // 停止 token 刷新定时器
+    this.stopTokenRefresh();
+
     if (this.conversationTranscriber && this.isRunning) {
       this.conversationTranscriber.stopTranscribingAsync(() => {
         this.isRunning = false;
@@ -153,137 +209,156 @@ class SpeechService {
 }
 
 function App() {
-  const [isListening, setIsListening] = useState(false)
-  const [transcriptions, setTranscriptions] = useState([])
-  const [error, setError] = useState(null)
-  const [speakers, setSpeakers] = useState(new Map())
-  const [events, setEvents] = useState([])
-  const speechServiceRef = useRef(null)
-  const speakersRef = useRef(new Map())
-  const eventsListRef = useRef(null)
-  const transcriptionsListRef = useRef(null)
-  const idCounterRef = useRef(0)
+  const [isListening, setIsListening] = useState(false);
+  const [transcriptions, setTranscriptions] = useState([]);
+  const [error, setError] = useState(null);
+  const [speakers, setSpeakers] = useState(new Map());
+  const [events, setEvents] = useState([]);
+  const speechServiceRef = useRef(null);
+  const speakersRef = useRef(new Map());
+  const eventsListRef = useRef(null);
+  const transcriptionsListRef = useRef(null);
+  const idCounterRef = useRef(0);
 
   // 生成唯一ID
   const generateUniqueId = () => {
-    idCounterRef.current += 1
-    return `${Date.now()}-${idCounterRef.current}`
-  }
+    idCounterRef.current += 1;
+    return `${Date.now()}-${idCounterRef.current}`;
+  };
 
   useEffect(() => {
-    speakersRef.current = speakers
-  }, [speakers])
+    speakersRef.current = speakers;
+  }, [speakers]);
 
   // 自动滚动到事件日志底部
   useEffect(() => {
     if (eventsListRef.current) {
-      eventsListRef.current.scrollTop = eventsListRef.current.scrollHeight
+      eventsListRef.current.scrollTop = eventsListRef.current.scrollHeight;
     }
-  }, [events])
+  }, [events]);
 
   // 自动滚动到转录记录底部
   useEffect(() => {
     if (transcriptionsListRef.current) {
-      transcriptionsListRef.current.scrollTop = transcriptionsListRef.current.scrollHeight
+      transcriptionsListRef.current.scrollTop =
+        transcriptionsListRef.current.scrollHeight;
     }
-  }, [transcriptions])
+  }, [transcriptions]);
 
   useEffect(() => {
     speechServiceRef.current = new SpeechService({
       onSessionStarted: () => {
-        setEvents(prev => [...prev, {
-          id: generateUniqueId(),
-          type: 'session_started',
-          message: '会话已开始',
-          timestamp: new Date().toLocaleTimeString('zh-CN')
-        }])
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "session_started",
+            message: "会话已开始",
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
       },
       onTranscribing: (text, speakerId) => {
-        setEvents(prev => [...prev, {
-          id: generateUniqueId(),
-          type: 'transcribing',
-          message: `正在识别: ${text}`,
-          text,
-          speakerId,
-          timestamp: new Date().toLocaleTimeString('zh-CN')
-        }])
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "transcribing",
+            message: `正在识别: ${text}`,
+            text,
+            speakerId,
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
       },
       onTranscribed: (text, speakerId) => {
-        setSpeakers(prev => {
-          const newSpeakers = new Map(prev)
+        setSpeakers((prev) => {
+          const newSpeakers = new Map(prev);
           if (speakerId && !newSpeakers.has(speakerId)) {
-            newSpeakers.set(speakerId, newSpeakers.size + 1)
+            newSpeakers.set(speakerId, newSpeakers.size + 1);
           }
-          speakersRef.current = newSpeakers
-          const speakerNum = newSpeakers.get(speakerId)
-          const speakerName = speakerNum ? `说话人-${speakerNum}` : 'Unknown'
-          
-          setTranscriptions(prev => [...prev, {
-            id: generateUniqueId(),
-            text,
-            speakerId,
-            speakerName,
-            timestamp: new Date().toLocaleTimeString('zh-CN')
-          }])
-          
-          setEvents(prev => [...prev, {
-            id: generateUniqueId(),
-            type: 'transcribed',
-            message: `识别完成: ${text}`,
-            text,
-            speakerId,
-            speakerName,
-            timestamp: new Date().toLocaleTimeString('zh-CN')
-          }])
-          
-          return newSpeakers
-        })
+          speakersRef.current = newSpeakers;
+          const speakerNum = newSpeakers.get(speakerId);
+          const speakerName = speakerNum ? `说话人-${speakerNum}` : "Unknown";
+
+          setTranscriptions((prev) => [
+            ...prev,
+            {
+              id: generateUniqueId(),
+              text,
+              speakerId,
+              speakerName,
+              timestamp: new Date().toLocaleTimeString("zh-CN"),
+            },
+          ]);
+
+          setEvents((prev) => [
+            ...prev,
+            {
+              id: generateUniqueId(),
+              type: "transcribed",
+              message: `识别完成: ${text}`,
+              text,
+              speakerId,
+              speakerName,
+              timestamp: new Date().toLocaleTimeString("zh-CN"),
+            },
+          ]);
+
+          return newSpeakers;
+        });
       },
       onSessionStopped: () => {
-        setEvents(prev => [...prev, {
-          id: generateUniqueId(),
-          type: 'session_stopped',
-          message: '会话已停止',
-          timestamp: new Date().toLocaleTimeString('zh-CN')
-        }])
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "session_stopped",
+            message: "会话已停止",
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
       },
       onError: (errorMsg) => {
-        setError(errorMsg)
-        setIsListening(false)
-        setEvents(prev => [...prev, {
-          id: generateUniqueId(),
-          type: 'error',
-          message: `错误: ${errorMsg}`,
-          timestamp: new Date().toLocaleTimeString('zh-CN')
-        }])
-      }
-    })
+        setError(errorMsg);
+        setIsListening(false);
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: generateUniqueId(),
+            type: "error",
+            message: `错误: ${errorMsg}`,
+            timestamp: new Date().toLocaleTimeString("zh-CN"),
+          },
+        ]);
+      },
+    });
 
-    return () => speechServiceRef.current?.stop()
-  }, [])
+    return () => speechServiceRef.current?.stop();
+  }, []);
 
   const handleStart = async () => {
     try {
-      setError(null)
-      setIsListening(true)
-      await speechServiceRef.current.start()
+      setError(null);
+      setIsListening(true);
+      await speechServiceRef.current.start();
     } catch (err) {
-      setError(err.message || '启动失败')
-      setIsListening(false)
+      setError(err.message || "启动失败");
+      setIsListening(false);
     }
-  }
+  };
 
   const handleStop = () => {
-    speechServiceRef.current.stop()
-    setIsListening(false)
-  }
+    speechServiceRef.current.stop();
+    setIsListening(false);
+  };
 
   const handleClear = () => {
-    setTranscriptions([])
-    setSpeakers(new Map())
-    setEvents([])
-    idCounterRef.current = 0
-  }
+    setTranscriptions([]);
+    setSpeakers(new Map());
+    setEvents([]);
+    idCounterRef.current = 0;
+  };
 
   return (
     <div className="app">
@@ -303,16 +378,16 @@ function App() {
               ⏹️ 停止识别
             </button>
           )}
-          <button className="btn btn-clear" onClick={handleClear} disabled={transcriptions.length === 0}>
+          <button
+            className="btn btn-clear"
+            onClick={handleClear}
+            disabled={transcriptions.length === 0}
+          >
             🗑️ 清空记录
           </button>
         </div>
 
-        {error && (
-          <div className="error-message">
-            ❌ 错误: {error}
-          </div>
-        )}
+        {error && <div className="error-message">❌ 错误: {error}</div>}
 
         {isListening && (
           <div className="listening-indicator">
@@ -331,14 +406,17 @@ function App() {
             ) : (
               <div className="events-list" ref={eventsListRef}>
                 {events.map((event) => (
-                  <div key={event.id} className={`event-item event-${event.type}`}>
+                  <div
+                    key={event.id}
+                    className={`event-item event-${event.type}`}
+                  >
                     <div className="event-header">
                       <span className={`event-type event-type-${event.type}`}>
-                        {event.type === 'session_started' && '▶️'}
-                        {event.type === 'transcribing' && '🔄'}
-                        {event.type === 'transcribed' && '✅'}
-                        {event.type === 'session_stopped' && '⏹️'}
-                        {event.type === 'error' && '❌'}
+                        {event.type === "session_started" && "▶️"}
+                        {event.type === "transcribing" && "🔄"}
+                        {event.type === "transcribed" && "✅"}
+                        {event.type === "session_stopped" && "⏹️"}
+                        {event.type === "error" && "❌"}
                       </span>
                       <span className="event-timestamp">{event.timestamp}</span>
                     </div>
@@ -386,8 +464,7 @@ function App() {
         )}
       </div>
     </div>
-  )
+  );
 }
 
-export default App
-
+export default App;
