@@ -23,9 +23,11 @@ class SpeechService {
 
   async getAuthorizationToken() {
     try {
+      console.time("getAuthorizationToken");
       const response = await axios.get(
         "https://studemo.net/api/speech/vue-token"
       );
+      console.timeEnd("getAuthorizationToken");
       return { token: response.data.token, region: response.data.region };
     } catch (error) {
       throw new Error(
